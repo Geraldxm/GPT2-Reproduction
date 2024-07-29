@@ -21,7 +21,7 @@ torch.manual_seed(1337)
 # 莎士比亚文本
 # wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 with open('input.txt', 'r', encoding='utf-8') as f:
-    text = f.read()
+    text = f.readsc()
 
 # here are all the unique characters that occur in this text
 chars = sorted(list(set(text)))
@@ -41,6 +41,8 @@ print('first 100 data:', data[:100])
 n = int(0.9 * len(data))  # first 90% will be train, rest val
 train_data = data[:n]
 val_data = data[n:]
+
+
 
 
 # data loading
@@ -83,7 +85,6 @@ class Head(nn.Module):
         # 将下三角矩阵注册在缓冲区中，以便在每次前向传播时重复使用
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
         self.dropout = nn.Dropout(dropout)
-
 
     def forward(self, x):
         # input of size (batch, time-step, channels)
@@ -216,31 +217,45 @@ class GPTLanguageModel(nn.Module):
         return idx
 
 
-model = GPTLanguageModel()
-m = model.to(device)
-# print the number of parameters in the model
-print(sum(p.numel() for p in m.parameters()) / 1e6, 'M parameters')
+if __name__ == '__main__':
 
-# create a PyTorch optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-for iter in range(max_iters):
+    model = GPTLanguageModel()
+    m = model.to(device)
+    # print the number of parameters in the model
+    print(sum(p.numel() for p in m.parameters()) / 1e6, 'M parameters')
 
-    # every once in a while evaluate the loss on train and val sets
-    if iter % eval_interval == 0 or iter == max_iters - 1:
-        losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    # create a PyTorch optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    # sample a batch of data
-    xb, yb = get_batch('train')
+    # 初始化最佳验证损失
+    best_val_loss = float('inf')
 
-    # evaluate the loss
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+    for iter in range(max_iters):
 
-# generate from the model
-context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
-# open('more.txt', 'w').write(decode(m.generate(context, max_new_tokens=10000)[0].tolist()))
+        # every once in a while evaluate the loss on train and val sets
+        if iter % eval_interval == 0 or iter == max_iters - 1:
+            losses = estimate_loss()
+            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+
+            # 如果当前验证损失比最佳验证损失更好，则保存最佳模型权重
+            if losses['val'] < best_val_loss:
+                best_val_loss = losses['val']
+                torch.save(model.state_dict(), 'best.pt')
+
+        # 每次迭代结束时保存最后一次的模型权重
+        torch.save(model.state_dict(), 'last.pt')
+
+        # sample a batch of data
+        xb, yb = get_batch('train')
+
+        # evaluate the loss
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+
+    # generate from the model
+    context = torch.zeros((1, 1), dtype=torch.long, device=device)
+    print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+    # open('more.txt', 'w').write(decode(m.generate(context, max_new_tokens=10000)[0].tolist()))
