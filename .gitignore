@@ -1,0 +1,11 @@
+# 忽略Git目录 
+.git/ 
+ 
+# 忽略JetBrains IDE的配置目录 
+.idea/ 
+ 
+# 忽略Python生成的缓存目录 
+__pycache__/ 
+ 
+# 忽略截图目录 
+screenshot/ 
