@@ -13,7 +13,7 @@ eval_iters = 200  # 评估迭代次数
 n_embd = 384  # embedding dimension
 n_head = 6  # number of heads
 n_layer = 6  # number of layers
-dropout = 0.40  # dropout rate
+dropout = 0.25  # dropout rate
 # ------------
 
 torch.manual_seed(1337)
@@ -21,12 +21,13 @@ torch.manual_seed(1337)
 # 莎士比亚文本
 # wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 with open('input.txt', 'r', encoding='utf-8') as f:
-    text = f.readsc()
+    text = f.read()
 
 # here are all the unique characters that occur in this text
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
 print('vocab size:', vocab_size)
+print('chars:', chars)
 # create a mapping from characters to integers
 stoi = {ch: i for i, ch in enumerate(chars)}
 itos = {i: ch for i, ch in enumerate(chars)}
@@ -35,14 +36,11 @@ decode = lambda l: ''.join([itos[i] for i in l])  # decoder: take a list of inte
 
 # Train and test splits
 data = torch.tensor(encode(text), dtype=torch.long)
-# 输出data的前100个字符
-print('first 100 data:', data[:100])
+print('first 20 data:', data[:20])
 
-n = int(0.9 * len(data))  # first 90% will be train, rest val
+n = int(0.9 * len(data))  # first 90% will be trained, rest val
 train_data = data[:n]
 val_data = data[n:]
-
-
 
 
 # data loading
@@ -67,13 +65,15 @@ def estimate_loss():
             X, Y = get_batch(split)
             # 计算损失
             logits, loss = model(X, Y)
-            losses[k] = loss.item()
+            losses[k] = loss.item()  # 标量张量转换为 Python 标量
         out[split] = losses.mean()
-    model.train()
+    model.train()  # 重设为训练模式
     return out
 
 
 # 单头自注意力
+# head_size: 每个头的维度, = dk
+# n_embd: embedding dimension
 class Head(nn.Module):
     """ one head of self-attention """
 
@@ -87,14 +87,15 @@ class Head(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        # input of size (batch, time-step, channels)
-        # output of size (batch, time-step, head size)
-        B, T, C = x.shape
-        k = self.key(x)  # (B,T,hs)
-        q = self.query(x)  # (B,T,hs)
+        # input size (batch, time-step, channels)
+        # output size (batch, time-step, head size)
+        B, T, C = x.shape  # channels = embedding dimension
+        k = self.key(x)  # (B, T, C) -> (B, T, hs)
+        q = self.query(x)  # (B, T, C) -> (B, T, hs)
         # compute attention scores ("affinities")
-        wei = q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))  # (B, T, T)
+        wei = q @ k.transpose(-2, -1)  # * k.shape[-1] ** -0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        wei = wei / (k.shape[-1] ** -0.5)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))  # (B, T, T), 保留下三角矩阵，其余填充为负无穷，屏蔽未来信息
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
@@ -137,12 +138,13 @@ class FeedFoward(nn.Module):
 
 
 class Block(nn.Module):
-    """ Transformer block: communication followed by computation """
+    """ Transformer block: communication followed by computation.
+    first apply self-attention, then apply a feedforward network """
 
     def __init__(self, n_embd, n_head):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
-        head_size = n_embd // n_head
+        head_size = n_embd // n_head  # n_embd = head_size * n_head
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedFoward(n_embd)
         self.ln1 = nn.LayerNorm(n_embd)
@@ -166,7 +168,7 @@ class GPTLanguageModel(nn.Module):
         self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)  # 语言模型头，作用是预测下一个token
 
-        # better init, not covered in the original GPT video, but important, will cover in followup video
+        # better init, not covered in the original GPT video, but important
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -189,6 +191,7 @@ class GPTLanguageModel(nn.Module):
         # 得到预测的logits
         logits = self.lm_head(x)  # (B,T,vocab_size)
 
+        # targets 是下一个token的索引，用于计算交叉熵损失
         if targets is None:
             loss = None
         else:
@@ -210,15 +213,15 @@ class GPTLanguageModel(nn.Module):
             logits = logits[:, -1, :]  # becomes (B, C)
             # apply softmax to get probabilities
             probs = F.softmax(logits, dim=-1)  # (B, C)
-            # sample from the distribution
+            # multinomial 用于从多项分布中抽取样本
             idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
+            # idx_next = probs.multinomial(1)  # (B, 1)
             # append sampled index to the running sequence
             idx = torch.cat((idx, idx_next), dim=1)  # (B, T+1)
         return idx
 
 
 if __name__ == '__main__':
-
 
     model = GPTLanguageModel()
     m = model.to(device)

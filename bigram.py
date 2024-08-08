@@ -112,14 +112,14 @@ for iter in range(max_iters):
         losses = estimate_loss()
         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
-    # sample a batch of data
-    xb, yb = get_batch('train')
+    # 正向传播
+    xb, yb = get_batch('train')  # sample a batch of data
+    logits, loss = model(xb, yb)  # evaluate the loss
 
-    # evaluate the loss
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+    # 反向传播
+    optimizer.zero_grad(set_to_none=True)  # clear previous gradients
+    loss.backward()  # backprop
+    optimizer.step()  # update weights
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
